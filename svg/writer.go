@@ -9,6 +9,32 @@ import (
 	"github.com/boxesandglue/mpgo/mp"
 )
 
+// formatLineCap returns the SVG stroke-linecap value for a given LineCap constant.
+// Defaults to "round" (MetaPost default) if unset or unknown.
+func formatLineCap(cap int) string {
+	switch cap {
+	case mp.LineCapButt:
+		return "butt"
+	case mp.LineCapSquared:
+		return "square"
+	default: // LineCapDefault, LineCapRounded, or unknown
+		return "round"
+	}
+}
+
+// formatLineJoin returns the SVG stroke-linejoin value for a given LineJoin constant.
+// Defaults to "round" (MetaPost default) if unset or unknown.
+func formatLineJoin(join int) string {
+	switch join {
+	case mp.LineJoinMiter:
+		return "miter"
+	case mp.LineJoinBevel:
+		return "bevel"
+	default: // LineJoinDefault, LineJoinRound, or unknown
+		return "round"
+	}
+}
+
 // FormatDashAttrs returns SVG stroke-dasharray and stroke-dashoffset attributes
 // for a dash pattern. Returns empty string if dash is nil.
 // Mirrors MetaPost's SVG output (svgout.w:1089ff).
@@ -236,6 +262,8 @@ type Builder struct {
 	stroke         mp.Color
 	fill           mp.Color
 	strokeWidth    float64
+	lineCap        int // Default line cap (uses mp.LineCap* constants)
+	lineJoin       int // Default line join (uses mp.LineJoin* constants)
 	flipY          bool
 	autoSize       bool
 	padding        float64
@@ -520,8 +548,10 @@ func (s *Builder) AddPath(pathData string, stroke string) *Builder {
 	if stroke != "" {
 		color = mp.ColorCSS(stroke)
 	}
-	attrs := fmt.Sprintf(`fill="%s" stroke="%s" stroke-width="%.2f" stroke-linecap="round" stroke-linejoin="round"`,
-		s.fill.CSS(), color.CSS(), s.strokeWidth)
+	linecap := formatLineCap(s.lineCap)
+	linejoin := formatLineJoin(s.lineJoin)
+	attrs := fmt.Sprintf(`fill="%s" stroke="%s" stroke-width="%.2f" stroke-linecap="%s" stroke-linejoin="%s"`,
+		s.fill.CSS(), color.CSS(), s.strokeWidth, linecap, linejoin)
 	if op, ok := color.Opacity(); ok {
 		attrs += fmt.Sprintf(` stroke-opacity="%.3f"`, op)
 	}
@@ -818,9 +848,10 @@ func (s *Builder) WriteTo(w io.Writer) error {
 					}
 				}
 				dashAttrs := FormatDashAttrs(p.Style.Dash)
-				// MetaPost default: stroke-linecap and stroke-linejoin are round
-				if _, err := fmt.Fprintf(w, `<path d="%s" fill="%s" stroke="%s" stroke-width="%.2f" stroke-linecap="round" stroke-linejoin="round"%s/>`,
-					pathData, fill.CSS(), color.CSS(), width, dashAttrs); err != nil {
+				linecap := formatLineCap(p.Style.LineCap)
+				linejoin := formatLineJoin(p.Style.LineJoin)
+				if _, err := fmt.Fprintf(w, `<path d="%s" fill="%s" stroke="%s" stroke-width="%.2f" stroke-linecap="%s" stroke-linejoin="%s"%s/>`,
+					pathData, fill.CSS(), color.CSS(), width, linecap, linejoin, dashAttrs); err != nil {
 					return err
 				}
 			}
@@ -869,7 +900,9 @@ func (s *Builder) writePathElement(w io.Writer, p *mp.Path) error {
 		}
 	}
 	dashAttrs := FormatDashAttrs(p.Style.Dash)
-	_, err := fmt.Fprintf(w, `<path d="%s" fill="%s" stroke="%s" stroke-width="%.2f" stroke-linecap="round" stroke-linejoin="round"%s/>`,
-		pathData, fill.CSS(), color.CSS(), width, dashAttrs)
+	linecap := formatLineCap(p.Style.LineCap)
+	linejoin := formatLineJoin(p.Style.LineJoin)
+	_, err := fmt.Fprintf(w, `<path d="%s" fill="%s" stroke="%s" stroke-width="%.2f" stroke-linecap="%s" stroke-linejoin="%s"%s/>`,
+		pathData, fill.CSS(), color.CSS(), width, linecap, linejoin, dashAttrs)
 	return err
 }
