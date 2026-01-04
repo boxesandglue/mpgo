@@ -256,6 +256,7 @@ func PathBBox(p *mp.Path) (minX, minY, maxX, maxY float64) {
 type Builder struct {
 	width, height  float64
 	paths          []string
+	labels         []*mp.Label // Labels to render as SVG text elements
 	bg             string
 	viewBox        string
 	viewBoxSet     bool // True if viewBox was explicitly set (FitViewBoxToPaths called)
@@ -467,6 +468,7 @@ func (s *Builder) FitViewBoxToPaths(paths ...*mp.Path) *Builder {
 // Picture interface for adding pictures to the SVG
 type Picture interface {
 	Paths() []*mp.Path
+	Labels() []*mp.Label
 	ClipPath() *mp.Path
 }
 
@@ -739,6 +741,8 @@ func (s *Builder) AddPicture(pic Picture) *Builder {
 			clipIndex: clipIndex,
 			paths:     pic.Paths(),
 		})
+		// Add labels (not clipped for now, matching MetaPost behavior)
+		s.labels = append(s.labels, pic.Labels()...)
 		return s
 	}
 
@@ -746,13 +750,132 @@ func (s *Builder) AddPicture(pic Picture) *Builder {
 	for _, p := range pic.Paths() {
 		s.AddPathFromPath(p)
 	}
+	// Add labels
+	s.labels = append(s.labels, pic.Labels()...)
 	return s
 }
 
+// fitViewBoxToContent computes the viewBox including both paths and labels.
+func (s *Builder) fitViewBoxToContent() {
+	s.viewBoxSet = true
+	pad := s.padding
+	minx, miny := math.Inf(1), math.Inf(1)
+	maxx, maxy := math.Inf(-1), math.Inf(-1)
+	maxStroke := s.strokeWidth
+	hasEnvelope := false
+
+	expand := func(x, y float64) {
+		if x < minx {
+			minx = x
+		}
+		if x > maxx {
+			maxx = x
+		}
+		if y < miny {
+			miny = y
+		}
+		if y > maxy {
+			maxy = y
+		}
+	}
+
+	// Include paths (same logic as FitViewBoxToPaths)
+	for _, p := range s.mpOrigPaths {
+		if p == nil || p.Head == nil {
+			continue
+		}
+		if p.Style.StrokeWidth > 0 && p.Style.StrokeWidth > maxStroke {
+			maxStroke = p.Style.StrokeWidth
+		}
+		if pen := p.Style.Pen; pen != nil && pen.Elliptical {
+			if scale := mp.GetPenScale(pen); scale > maxStroke {
+				maxStroke = scale
+			}
+		}
+		if p.Envelope != nil {
+			hasEnvelope = true
+			lminX, lminY, lmaxX, lmaxY := PathBBox(p.Envelope)
+			expand(lminX, lminY)
+			expand(lmaxX, lmaxY)
+		} else {
+			lminX, lminY, lmaxX, lmaxY := PathBBox(p)
+			expand(lminX, lminY)
+			expand(lmaxX, lmaxY)
+		}
+		// Include arrow heads
+		if p.Style.Arrow.End {
+			ahLen := p.Style.Arrow.Length
+			if ahLen <= 0 {
+				ahLen = mp.DefaultAHLength
+			}
+			ahAng := p.Style.Arrow.Angle
+			if ahAng <= 0 {
+				ahAng = mp.DefaultAHAngle
+			}
+			if arrow := mp.ArrowHeadEnd(p, ahLen, ahAng); arrow != nil {
+				lminX, lminY, lmaxX, lmaxY := PathBBox(arrow)
+				expand(lminX, lminY)
+				expand(lmaxX, lmaxY)
+			}
+		}
+		if p.Style.Arrow.Start {
+			ahLen := p.Style.Arrow.Length
+			if ahLen <= 0 {
+				ahLen = mp.DefaultAHLength
+			}
+			ahAng := p.Style.Arrow.Angle
+			if ahAng <= 0 {
+				ahAng = mp.DefaultAHAngle
+			}
+			if arrow := mp.ArrowHeadStart(p, ahLen, ahAng); arrow != nil {
+				lminX, lminY, lmaxX, lmaxY := PathBBox(arrow)
+				expand(lminX, lminY)
+				expand(lmaxX, lmaxY)
+			}
+		}
+	}
+
+	// Include labels
+	for _, label := range s.labels {
+		if label == nil {
+			continue
+		}
+		lminX, lminY, lmaxX, lmaxY := label.EstimateBounds()
+		expand(lminX, lminY)
+		expand(lmaxX, lmaxY)
+	}
+
+	if math.IsInf(minx, 1) {
+		return // No content
+	}
+
+	// Calculate viewBox with stroke padding
+	halfStroke := float64(0)
+	if !hasEnvelope {
+		halfStroke = maxStroke / 2
+	}
+	halfStroke += pad
+
+	viewBoxMinX := minx - halfStroke
+	viewBoxMaxX := maxx + halfStroke
+	viewBoxMinY := miny - halfStroke
+	viewBoxMaxY := maxy + halfStroke
+	viewBoxW := viewBoxMaxX - viewBoxMinX
+	viewBoxH := viewBoxMaxY - viewBoxMinY
+
+	s.mpMaxY = viewBoxMaxY
+	s.mpOffsetX = viewBoxMinX
+	s.viewBox = fmt.Sprintf("0 0 %g %g", viewBoxW, viewBoxH)
+	if s.autoSize {
+		s.width = viewBoxW
+		s.height = viewBoxH
+	}
+}
+
 func (s *Builder) WriteTo(w io.Writer) error {
-	// Auto-fit viewBox if not explicitly set and we have paths
-	if !s.viewBoxSet && len(s.mpOrigPaths) > 0 {
-		s.FitViewBoxToPaths(s.mpOrigPaths...)
+	// Auto-fit viewBox if not explicitly set and we have content
+	if !s.viewBoxSet && (len(s.mpOrigPaths) > 0 || len(s.labels) > 0) {
+		s.fitViewBoxToContent()
 	}
 	vb := s.viewBox
 	if vb == "" {
@@ -862,6 +985,12 @@ func (s *Builder) WriteTo(w io.Writer) error {
 			return err
 		}
 	}
+	// Render labels
+	for _, label := range s.labels {
+		if err := s.writeLabelElement(w, label); err != nil {
+			return err
+		}
+	}
 	if s.flipY {
 		if _, err := io.WriteString(w, "</g>"); err != nil {
 			return err
@@ -905,4 +1034,113 @@ func (s *Builder) writePathElement(w io.Writer, p *mp.Path) error {
 	_, err := fmt.Fprintf(w, `<path d="%s" fill="%s" stroke="%s" stroke-width="%.2f" stroke-linecap="%s" stroke-linejoin="%s"%s/>`,
 		pathData, fill.CSS(), color.CSS(), width, linecap, linejoin, dashAttrs)
 	return err
+}
+
+// AddLabel adds a label to the SVG output.
+func (s *Builder) AddLabel(label *mp.Label) *Builder {
+	if label != nil {
+		s.labels = append(s.labels, label)
+	}
+	return s
+}
+
+// formatTextAnchor returns the SVG text-anchor value for a given Anchor.
+// Maps MetaPost's labxf values to SVG text-anchor:
+//   - labxf=0 (left edge at position) → text-anchor="start"
+//   - labxf=0.5 (center at position) → text-anchor="middle"
+//   - labxf=1 (right edge at position) → text-anchor="end"
+func formatTextAnchor(anchor mp.Anchor) string {
+	xf, _ := mp.LabelAnchorFactors(anchor)
+	if xf < 0.25 {
+		return "start"
+	} else if xf > 0.75 {
+		return "end"
+	}
+	return "middle"
+}
+
+// formatDominantBaseline returns the SVG dominant-baseline value for a given Anchor.
+// Maps MetaPost's labyf values to SVG dominant-baseline:
+//   - labyf=0 (bottom edge of text at position) → dominant-baseline="text-after-edge"
+//   - labyf=0.5 (middle at position) → dominant-baseline="central"
+//   - labyf=1 (top edge of text at position) → dominant-baseline="hanging"
+func formatDominantBaseline(anchor mp.Anchor) string {
+	_, yf := mp.LabelAnchorFactors(anchor)
+	if yf < 0.25 {
+		// yf=0: bottom edge of text at position (e.g., label.top places text above point)
+		return "text-after-edge"
+	} else if yf > 0.75 {
+		// yf=1: top edge of text at position (e.g., label.bot places text below point)
+		return "hanging"
+	}
+	return "central"
+}
+
+// writeLabelElement writes a single label as an SVG text element.
+func (s *Builder) writeLabelElement(w io.Writer, label *mp.Label) error {
+	if label == nil {
+		return nil
+	}
+
+	// Calculate the position with offset
+	dx, dy := mp.LabelOffsetVector(label.Anchor)
+	offset := label.LabelOffset
+	if offset == 0 {
+		offset = mp.DefaultLabelOffset
+	}
+	x := label.Position.X + dx*offset
+	y := label.Position.Y + dy*offset
+
+	// Transform coordinates for MetaPost-compatible mode
+	if s.metaPostCompat {
+		x = x - s.mpOffsetX
+		y = s.mpMaxY - y + s.mpOffsetY
+	}
+
+	// Get SVG text attributes
+	textAnchor := formatTextAnchor(label.Anchor)
+	dominantBaseline := formatDominantBaseline(label.Anchor)
+
+	// Get font settings
+	fontSize := label.FontSize
+	if fontSize == 0 {
+		fontSize = mp.DefaultFontSize
+	}
+	fontFamily := label.FontFamily
+	if fontFamily == "" {
+		fontFamily = "sans-serif"
+	}
+
+	// Get color
+	color := label.Color
+	if color.CSS() == "" {
+		color = mp.ColorCSS("black")
+	}
+
+	// Write the text element
+	_, err := fmt.Fprintf(w, `<text x="%.3f" y="%.3f" font-family="%s" font-size="%.2f" fill="%s" text-anchor="%s" dominant-baseline="%s">%s</text>`,
+		x, y, fontFamily, fontSize, color.CSS(), textAnchor, dominantBaseline, escapeXML(label.Text))
+	return err
+}
+
+// escapeXML escapes special characters for XML/SVG text content.
+func escapeXML(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '<':
+			b.WriteString("&lt;")
+		case '>':
+			b.WriteString("&gt;")
+		case '&':
+			b.WriteString("&amp;")
+		case '"':
+			b.WriteString("&quot;")
+		case '\'':
+			b.WriteString("&apos;")
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }

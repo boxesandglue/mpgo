@@ -687,3 +687,146 @@ func createSolvedCurve() *Path {
 
 	return p
 }
+
+// TestDirectionTimeOf tests the directiontime operation.
+func TestDirectionTimeOf(t *testing.T) {
+	// Test 1: Horizontal line - direction is always (1,0)
+	line := makeLinePath() // (0,0)--(100,0)
+	tRight := line.DirectionTimeOf(1, 0)
+	if tRight < 0 {
+		t.Errorf("horizontal line should have direction (1,0), got t=%v", tRight)
+	}
+
+	// Direction (0,1) should not exist on horizontal line
+	tUp := line.DirectionTimeOf(0, 1)
+	if tUp >= 0 {
+		t.Errorf("horizontal line should not have direction (0,1), got t=%v", tUp)
+	}
+
+	// Test 2: Arc path - should have various directions
+	arc := createSolvedCurve() // (0,0)..(50,80)..(100,0)
+
+	// Find where tangent is horizontal (pointing right)
+	tHoriz := arc.DirectionTimeOf(1, 0)
+	if tHoriz < 0 {
+		t.Errorf("arc should have horizontal tangent somewhere, got t=%v", tHoriz)
+	}
+	// At horizontal tangent, the direction should be parallel to (1,0)
+	if tHoriz >= 0 {
+		dx, dy := arc.DirectionOf(tHoriz)
+		// Check that direction is approximately horizontal
+		if math.Abs(float64(dy)) > 0.01*math.Abs(float64(dx)) && dx != 0 {
+			t.Errorf("at t=%v, direction should be horizontal, got (%v, %v)", tHoriz, dx, dy)
+		}
+	}
+
+	// Test 3: Zero direction vector should return -1
+	tZero := arc.DirectionTimeOf(0, 0)
+	if tZero != -1 {
+		t.Errorf("zero direction should return -1, got %v", tZero)
+	}
+
+	// Test 4: Nil path should return -1
+	var nilPath *Path
+	tNil := nilPath.DirectionTimeOf(1, 0)
+	if tNil != -1 {
+		t.Errorf("nil path should return -1, got %v", tNil)
+	}
+}
+
+// TestDirectionPointOf tests the directionpoint operation.
+func TestDirectionPointOf(t *testing.T) {
+	arc := createSolvedCurve() // (0,0)..(50,80)..(100,0)
+
+	// Find point where tangent is horizontal
+	x, y, found := arc.DirectionPointOf(1, 0)
+	if !found {
+		t.Error("arc should have a point with horizontal tangent")
+	}
+	if found {
+		// The point should be near the top of the arc
+		// For this symmetric arc, x should be around 50
+		if x < 30 || x > 70 {
+			t.Errorf("horizontal tangent point x=%v should be near 50", x)
+		}
+		// y should be near the maximum (around 80)
+		if y < 60 {
+			t.Errorf("horizontal tangent point y=%v should be near the top", y)
+		}
+	}
+
+	// Direction not on path
+	_, _, found = arc.DirectionPointOf(-1, 0) // leftward
+	// Note: The arc goes up then down, so leftward direction might exist on descent
+	// This is just checking the function works, not the specific result
+}
+
+// TestDirectionTimeConsistency verifies that directiontime is inverse of direction.
+func TestDirectionTimeConsistency(t *testing.T) {
+	arc := createSolvedCurve()
+
+	// For various t values, get direction and verify directiontime finds it
+	testTs := []Number{0.1, 0.3, 0.5, 0.7, 0.9, 1.2, 1.5, 1.8}
+
+	for _, testT := range testTs {
+		dx, dy := arc.DirectionOf(testT)
+		if dx == 0 && dy == 0 {
+			continue // Skip degenerate directions
+		}
+
+		foundT := arc.DirectionTimeOf(dx, dy)
+		if foundT < 0 {
+			t.Errorf("direction at t=%v should be findable, got -1", testT)
+			continue
+		}
+
+		// The found t should give approximately the same direction
+		foundDx, foundDy := arc.DirectionOf(foundT)
+
+		// Normalize both for comparison
+		len1 := math.Sqrt(float64(dx*dx + dy*dy))
+		len2 := math.Sqrt(float64(foundDx*foundDx + foundDy*foundDy))
+		if len1 > 0 && len2 > 0 {
+			ndx1, ndy1 := float64(dx)/len1, float64(dy)/len1
+			ndx2, ndy2 := float64(foundDx)/len2, float64(foundDy)/len2
+
+			// Directions should be parallel (dot product ≈ 1)
+			dot := ndx1*ndx2 + ndy1*ndy2
+			if dot < 0.99 {
+				t.Errorf("at t=%v: direction (%v,%v) found at t=%v gives (%v,%v), dot=%v",
+					testT, dx, dy, foundT, foundDx, foundDy, dot)
+			}
+		}
+	}
+}
+
+// TestSolveQuadratic tests the quadratic equation solver.
+func TestSolveQuadratic(t *testing.T) {
+	tests := []struct {
+		name     string
+		a, b, c  Number
+		expected []Number
+	}{
+		{"two roots", 1, -3, 2, []Number{1, 2}}, // x²-3x+2=0 → x=1,2
+		{"one root", 1, -2, 1, []Number{1}},     // x²-2x+1=0 → x=1
+		{"no real roots", 1, 0, 1, nil},         // x²+1=0 → no real
+		{"linear", 0, 2, -4, []Number{2}},       // 2x-4=0 → x=2
+		{"constant zero", 0, 0, 5, nil},         // 5=0 → no solution
+		{"negative discriminant", 1, 1, 1, nil}, // x²+x+1=0 → no real
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			roots := solveQuadratic(tt.a, tt.b, tt.c)
+			if len(roots) != len(tt.expected) {
+				t.Errorf("expected %d roots, got %d: %v", len(tt.expected), len(roots), roots)
+				return
+			}
+			for i, exp := range tt.expected {
+				if math.Abs(float64(roots[i]-exp)) > 0.001 {
+					t.Errorf("root[%d]: expected %v, got %v", i, exp, roots[i])
+				}
+			}
+		})
+	}
+}

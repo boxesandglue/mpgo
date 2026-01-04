@@ -639,6 +639,59 @@ func (p *Path) Reversed() *Path {
 	return result
 }
 
+// CutBefore returns the portion of path p after its first intersection with path q.
+// Mirrors MetaPost's "p cutbefore q" (plain.mp).
+//
+// If there is no intersection, returns a copy of p.
+//
+// Example:
+//
+//	result := p.CutBefore(q)  // p from intersection to end
+func (p *Path) CutBefore(q *Path) *Path {
+	if p == nil || p.Head == nil {
+		return NewPath()
+	}
+	if q == nil || q.Head == nil {
+		return p.Copy()
+	}
+
+	t1, _ := p.IntersectionTimes(q)
+	if t1 < 0 {
+		// No intersection, return copy of original
+		return p.Copy()
+	}
+
+	// Return subpath from intersection to end
+	n := Number(p.PathLength())
+	return p.Subpath(t1, n)
+}
+
+// CutAfter returns the portion of path p before its first intersection with path q.
+// Mirrors MetaPost's "p cutafter q" (plain.mp).
+//
+// If there is no intersection, returns a copy of p.
+//
+// Example:
+//
+//	result := p.CutAfter(q)  // p from start to intersection
+func (p *Path) CutAfter(q *Path) *Path {
+	if p == nil || p.Head == nil {
+		return NewPath()
+	}
+	if q == nil || q.Head == nil {
+		return p.Copy()
+	}
+
+	t1, _ := p.IntersectionTimes(q)
+	if t1 < 0 {
+		// No intersection, return copy of original
+		return p.Copy()
+	}
+
+	// Return subpath from start to intersection
+	return p.Subpath(0, t1)
+}
+
 // ArcLength returns the total arc length of the path.
 // Mirrors MetaPost's "arclength p" (mp.w:10197ff).
 //
@@ -1548,4 +1601,201 @@ func BuildCycle(paths ...*Path) *Path {
 	}
 
 	return result
+}
+
+// DirectionTimeOf returns the first time t when the path has the given direction.
+// Mirrors MetaPost's "directiontime (dx,dy) of p" (mp.w:9593ff).
+//
+// Returns -1 if the direction is never achieved on the path.
+//
+// The direction vector (dx, dy) does not need to be normalized.
+// For example, directiontime (1, 1) finds where the tangent is at 45°.
+//
+// Example:
+//
+//	t := path.DirectionTimeOf(1, 0)  // Find where tangent is horizontal (rightward)
+//	t := path.DirectionTimeOf(0, 1)  // Find where tangent is vertical (upward)
+func (p *Path) DirectionTimeOf(dx, dy Number) Number {
+	if p == nil || p.Head == nil {
+		return -1
+	}
+	if dx == 0 && dy == 0 {
+		return -1
+	}
+
+	n := p.PathLength()
+	if n == 0 {
+		return -1
+	}
+
+	// For each segment, solve for t where direction equals (dx, dy)
+	cur := p.Head
+	for seg := 0; seg < n; seg++ {
+		if cur.Next == nil {
+			break
+		}
+
+		// Get segment control points
+		p0x, p0y := cur.XCoord, cur.YCoord
+		p1x, p1y := cur.RightX, cur.RightY
+		p2x, p2y := cur.Next.LeftX, cur.Next.LeftY
+		p3x, p3y := cur.Next.XCoord, cur.Next.YCoord
+
+		// Find t where derivative is parallel to (dx, dy)
+		t, found := directionTimeInSegment(p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y, dx, dy)
+		if found {
+			return Number(seg) + t
+		}
+
+		cur = cur.Next
+		if cur == p.Head {
+			break
+		}
+	}
+
+	return -1
+}
+
+// directionTimeInSegment finds the first t in [0,1] where the cubic Bézier
+// segment has direction parallel to (dx, dy).
+//
+// The derivative of a cubic Bézier is:
+//
+//	B'(t) = 3[(1-t)²(P1-P0) + 2(1-t)t(P2-P1) + t²(P3-P2)]
+//
+// We want B'(t) × (dx,dy) = 0 (cross product = 0 means parallel)
+// This gives a quadratic equation in t.
+func directionTimeInSegment(
+	p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y Number,
+	dx, dy Number,
+) (Number, bool) {
+	// Compute the three difference vectors
+	ax, ay := p1x-p0x, p1y-p0y // A = P1 - P0
+	bx, by := p2x-p1x, p2y-p1y // B = P2 - P1
+	cx, cy := p3x-p2x, p3y-p2y // C = P3 - P2
+
+	// Cross products with target direction
+	// a = A × D, b = B × D, c = C × D
+	a := ax*dy - ay*dx
+	b := bx*dy - by*dx
+	c := cx*dy - cy*dx
+
+	// Quadratic coefficients: αt² + βt + γ = 0
+	// Derived from expanding B'(t) × D = 0
+	alpha := a - 2*b + c
+	beta := 2 * (b - a)
+	gamma := a
+
+	// Handle degenerate case: direction is constant and parallel to target
+	// This happens for straight lines where a = b = c = 0
+	const epsDegenerate = 1e-12
+	if math.Abs(float64(alpha)) < epsDegenerate && math.Abs(float64(beta)) < epsDegenerate && math.Abs(float64(gamma)) < epsDegenerate {
+		// Check if initial direction is parallel to target
+		dirX, dirY := cubicDerivative(p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y, 0)
+		dot := dirX*dx + dirY*dy
+		if dot >= 0 { // Same direction
+			return 0, true // Any t works, return 0
+		}
+		return -1, false // Opposite direction
+	}
+
+	// Solve quadratic equation
+	roots := solveQuadratic(alpha, beta, gamma)
+
+	// Find smallest valid root in [0, 1]
+	const eps = 1e-9
+	bestT := Number(-1)
+	for _, t := range roots {
+		if t >= -eps && t <= 1+eps {
+			// Clamp to [0, 1]
+			if t < 0 {
+				t = 0
+			}
+			if t > 1 {
+				t = 1
+			}
+			// Verify the direction is actually parallel (same orientation, not opposite)
+			// This is important because cross product = 0 includes antiparallel vectors
+			dirX, dirY := cubicDerivative(p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y, t)
+			dot := dirX*dx + dirY*dy
+			if dot >= 0 { // Same direction (not opposite)
+				if bestT < 0 || t < bestT {
+					bestT = t
+				}
+			}
+		}
+	}
+
+	return bestT, bestT >= 0
+}
+
+// cubicDerivative computes the derivative of a cubic Bézier at parameter t.
+// Returns the tangent vector (not normalized).
+func cubicDerivative(p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y, t Number) (Number, Number) {
+	// B'(t) = 3[(1-t)²(P1-P0) + 2(1-t)t(P2-P1) + t²(P3-P2)]
+	u := 1 - t
+	u2 := u * u
+	t2 := t * t
+	ut2 := 2 * u * t
+
+	ax, ay := p1x-p0x, p1y-p0y
+	bx, by := p2x-p1x, p2y-p1y
+	cx, cy := p3x-p2x, p3y-p2y
+
+	dx := 3 * (u2*ax + ut2*bx + t2*cx)
+	dy := 3 * (u2*ay + ut2*by + t2*cy)
+	return dx, dy
+}
+
+// solveQuadratic solves αx² + βx + γ = 0 and returns real roots.
+func solveQuadratic(alpha, beta, gamma Number) []Number {
+	const eps = 1e-12
+
+	// Handle linear case (α ≈ 0)
+	if math.Abs(float64(alpha)) < eps {
+		if math.Abs(float64(beta)) < eps {
+			return nil // No solution or infinite solutions
+		}
+		return []Number{-gamma / beta}
+	}
+
+	// Quadratic formula: x = (-β ± √(β²-4αγ)) / 2α
+	discriminant := beta*beta - 4*alpha*gamma
+
+	if discriminant < -eps {
+		return nil // No real roots
+	}
+
+	if discriminant < eps {
+		// One repeated root
+		return []Number{-beta / (2 * alpha)}
+	}
+
+	// Two distinct roots
+	sqrtD := Number(math.Sqrt(float64(discriminant)))
+	r1 := (-beta + sqrtD) / (2 * alpha)
+	r2 := (-beta - sqrtD) / (2 * alpha)
+
+	// Return in ascending order
+	if r1 > r2 {
+		r1, r2 = r2, r1
+	}
+	return []Number{r1, r2}
+}
+
+// DirectionPointOf returns the first point on the path where it has the given direction.
+// Mirrors MetaPost's "directionpoint (dx,dy) of p" macro.
+//
+// Returns (0, 0) and false if the direction is never achieved.
+//
+// Example:
+//
+//	x, y, ok := path.DirectionPointOf(1, 0)  // Point where tangent is horizontal
+func (p *Path) DirectionPointOf(dx, dy Number) (x, y Number, found bool) {
+	t := p.DirectionTimeOf(dx, dy)
+	if t < 0 {
+		return 0, 0, false
+	}
+	x, y = p.PointOf(t)
+	return x, y, true
 }

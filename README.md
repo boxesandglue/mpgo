@@ -9,6 +9,7 @@ A Go port of MetaPost's curve-solving engine. Implements the Hobby-Knuth algorit
 - **Pens**: pencircle, pensquare, penrazor with full envelope computation
 - **Transformations**: shifted, scaled, rotated, slanted, reflected, etc.
 - **Path Operations**: point/direction of, subpath, arclength, intersections, buildcycle
+- **Labels**: Text labels with anchor positioning (like MetaPost's `label.top`, `label.lrt`, etc.)
 - **Geometry Helpers**: midpoint, line intersection, rotation, reflection
 - **Equation Solver**: Constraint-based coordinate computation
 - **SVG Output**: With automatic viewBox and MetaPost-compatible coordinates
@@ -109,6 +110,52 @@ circle = mp.Scaled(50).ApplyToPath(circle)
 circle = mp.Shifted(100, 100).ApplyToPath(circle)
 ```
 
+### Labels
+
+```go
+// Create a picture with labels
+pic := draw.NewPicture()
+
+// Add a triangle
+triangle, _ := draw.NewPath().
+    MoveTo(mp.P(0, 0)).
+    LineTo(mp.P(100, 0)).
+    LineTo(mp.P(50, 86)).
+    Close().
+    Solve()
+pic.AddPath(triangle)
+
+// MetaPost: label.llft("A", z0)
+pic.Label("A", mp.P(0, 0), mp.AnchorLowerLeft)
+pic.Label("B", mp.P(100, 0), mp.AnchorLowerRight)
+pic.Label("C", mp.P(50, 86), mp.AnchorTop)
+
+// MetaPost: dotlabel.bot("a", z)
+pic.DotLabel("a", mp.P(50, 0), mp.AnchorBottom, mp.ColorCSS("blue"))
+
+// Output SVG (labels as <text> elements)
+f, _ := os.Create("output.svg")
+svg.NewBuilder().AddPicture(pic).WriteTo(f)
+```
+
+### Labels as Glyph Paths (Optional)
+
+For font-independent output, convert labels to glyph outline paths:
+
+```go
+import "github.com/boxesandglue/mpgo/font"
+
+// Load a font
+fontFile, _ := os.Open("/path/to/arial.ttf")
+face, _ := font.Load(fontFile)
+fontFile.Close()
+
+// Convert all labels to paths (like MetaPost's "text infont font")
+pic.ConvertLabelsToPathsWithFont(face)
+```
+
+Note: The font package adds ~2.3 MB to binary size. Only import it when needed.
+
 ### Path Operations
 
 ```go
@@ -151,19 +198,19 @@ path, _ := ctx.NewPath().
 
 ```
 mpgo/
-├── mp/       # Core types and algorithms
-├── svg/      # SVG rendering
-├── draw/   # Builder API (optional)
-└── cmd/      # Example programs
+├── mp/     # Core types and algorithms
+├── draw/   # High-level builder API
+├── svg/    # SVG rendering
+└── font/   # Optional font support (adds ~2.3 MB)
 ```
 
 ## What This Is Not
 
 This is a **library**, not a MetaPost interpreter. It does not support:
-- MetaPost macros (`def`, `vardef`)
+- MetaPost source parsing
+- Macros (`def`, `vardef`, `btex...etex`)
 - Loops (`for`, `forever`)
 - Conditionals (`if`, `else`)
-- Text/labels (`btex...etex`)
 - File I/O
 
 Use this library when you want to generate MetaPost-quality curves programmatically in Go.
