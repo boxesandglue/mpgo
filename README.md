@@ -1,3 +1,5 @@
+[![Reference](https://img.shields.io/badge/Documentation-pkg.go.dev/github.com/boxesandglue/mpgo-blue)](https://pkg.go.dev/github.com/boxesandglue/mpgo)
+
 # mpgo
 
 A Go port of MetaPost's curve-solving engine. Implements the Hobby-Knuth algorithm for computing smooth Bézier curves from high-level path specifications.
