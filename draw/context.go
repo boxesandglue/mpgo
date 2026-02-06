@@ -270,7 +270,7 @@ func (c *Context) Intersection(p, a1, a2, b1, b2 *Var) error {
 		return errors.New("lines are parallel, no intersection")
 	}
 
-	c.Eq(p, pt)
+	p.SetXY(pt.X, pt.Y)
 	return nil
 }
 
@@ -345,6 +345,20 @@ func (c *Context) Scaled(result, v *Var, t float64) {
 		constant: 0,
 	}
 	c.eqns = append(c.eqns, eqY)
+}
+
+// LinearXY adds the constraint: cx*v.x + cy*v.y = constant.
+// This allows mixing x and y coordinates in a single equation,
+// e.g. LinearXY(z, 1, 1, 79.2) encodes x+y = 79.2 (MetaPost: x3+y3=1.1in).
+func (c *Context) LinearXY(v *Var, cx, cy, constant float64) {
+	eq := equation{
+		coeffs: map[int]float64{
+			v.index * 2:     cx,
+			v.index*2 + 1: cy,
+		},
+		constant: constant,
+	}
+	c.eqns = append(c.eqns, eq)
 }
 
 // --- Solver ---

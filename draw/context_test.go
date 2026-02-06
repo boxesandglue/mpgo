@@ -249,6 +249,32 @@ func TestContext_Eq(t *testing.T) {
 	}
 }
 
+func TestContext_LinearXY(t *testing.T) {
+	// MetaPost: x3=-x6=.3in; x3+y3=x6+y6=1.1in
+	// x3=21.6, x6=-21.6, x3+y3=79.2, x6+y6=79.2
+	// → y3=57.6, y6=100.8
+	ctx := NewContext()
+	z3 := ctx.Unknown()
+	z3.SetX(21.6)
+	z6 := ctx.Unknown()
+	z6.SetX(-21.6)
+	ctx.LinearXY(z3, 1, 1, 79.2)
+	ctx.LinearXY(z6, 1, 1, 79.2)
+
+	if err := ctx.Solve(); err != nil {
+		t.Fatalf("Solve failed: %v", err)
+	}
+
+	x3, y3 := z3.XY()
+	if math.Abs(x3-21.6) > 1e-10 || math.Abs(y3-57.6) > 1e-10 {
+		t.Errorf("z3: expected (21.6, 57.6), got (%v, %v)", x3, y3)
+	}
+	x6, y6 := z6.XY()
+	if math.Abs(x6-(-21.6)) > 1e-10 || math.Abs(y6-100.8) > 1e-10 {
+		t.Errorf("z6: expected (-21.6, 100.8), got (%v, %v)", x6, y6)
+	}
+}
+
 func TestContext_TwoCollinearConstraints(t *testing.T) {
 	// Find intersection of two lines using collinear constraints:
 	// Line 1: (0,0) -- (100,100)
