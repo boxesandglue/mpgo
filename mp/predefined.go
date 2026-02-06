@@ -5,48 +5,49 @@ import "math"
 // Predefined paths matching MetaPost's plain.mp definitions.
 // All circles have diameter 1 (radius 0.5) centered at origin.
 
-// For Bézier circle approximation with 8 segments, MetaPost uses
-// control point distance = radius * 4 * (sqrt(2) - 1) / 3 ≈ 0.2761423749
-// This gives very accurate circular arcs.
-const circleKappa = 0.2761423749153966
+// circleAngles are the 8 points of MetaPost's fullcircle (0° through 315°).
+var circleAngles = []float64{0, 45, 90, 135, 180, 225, 270, 315}
+
+// makeCircleKnot creates a knot on a circle of given radius at the specified
+// angle (degrees), with KnotGiven direction and tension 1. This mirrors
+// MetaPost's makepath pencircle (mp.c:mp_make_path), which sets each knot's
+// direction to the tangent of the circle at that point.
+func makeCircleKnot(deg, r float64) *Knot {
+	rad := deg * math.Pi / 180
+	x := r * math.Cos(rad)
+	y := r * math.Sin(rad)
+
+	knot := NewKnot()
+	knot.XCoord = Number(x)
+	knot.YCoord = Number(y)
+
+	// Tangent direction at angle θ on a circle: (-sin θ, cos θ)
+	// nArg converts this to MetaPost's internal angle representation.
+	tanX := -math.Sin(rad)
+	tanY := math.Cos(rad)
+	dirAngle := nArg(Number(tanX), Number(tanY))
+
+	knot.LType = KnotGiven
+	knot.RType = KnotGiven
+	knot.LeftX = dirAngle  // left given angle
+	knot.RightX = dirAngle // right given angle
+	knot.LeftY = unity     // left tension = 1
+	knot.RightY = unity    // right tension = 1
+
+	return knot
+}
 
 // FullCircle returns a unit circle (diameter 1) centered at the origin.
-// Equivalent to MetaPost's `fullcircle`.
-// The path starts at (0.5, 0) and goes counterclockwise.
+// Equivalent to MetaPost's `fullcircle` (= makepath pencircle).
+// The path starts at (0.5, 0) and goes counterclockwise with 8 knots.
+// Control points are computed by the Hobby-Knuth solver, matching MetaPost.
 func FullCircle() *Path {
-	r := 0.5 // radius
-	k := circleKappa
-
+	r := 0.5
 	p := NewPath()
 
-	// 8 points around the circle, starting at (r, 0) = 0°
-	// Each arc spans 45°
-	angles := []float64{0, 45, 90, 135, 180, 225, 270, 315}
-
 	var knots []*Knot
-	for _, deg := range angles {
-		rad := deg * math.Pi / 180
-		x := r * math.Cos(rad)
-		y := r * math.Sin(rad)
-
-		knot := NewKnot()
-		knot.XCoord = Number(x)
-		knot.YCoord = Number(y)
-		knot.LType = KnotExplicit
-		knot.RType = KnotExplicit
-
-		// Control points are perpendicular to the radius
-		// Left control: rotate tangent by -90° (clockwise from previous)
-		// Right control: rotate tangent by +90° (counterclockwise to next)
-		tanX := -math.Sin(rad) // tangent direction (perpendicular to radius)
-		tanY := math.Cos(rad)
-
-		knot.LeftX = Number(x - k*tanX)
-		knot.LeftY = Number(y - k*tanY)
-		knot.RightX = Number(x + k*tanX)
-		knot.RightY = Number(y + k*tanY)
-
-		knots = append(knots, knot)
+	for _, deg := range circleAngles {
+		knots = append(knots, makeCircleKnot(deg, r))
 	}
 
 	// Link knots into a cycle
@@ -57,113 +58,90 @@ func FullCircle() *Path {
 			knot.Prev = knots[i-1]
 		}
 	}
-	// Close the cycle
 	knots[len(knots)-1].Next = knots[0]
 	knots[0].Prev = knots[len(knots)-1]
+
+	// Solve to compute control points (like MetaPost's makepath pencircle)
+	e := NewEngine()
+	e.AddPath(p)
+	e.Solve()
 
 	return p
 }
 
 // HalfCircle returns the upper half of a unit circle.
-// Equivalent to MetaPost's `halfcircle`.
+// Equivalent to MetaPost's `halfcircle` (= subpath (0,4) of fullcircle).
 // The path starts at (0.5, 0), goes through (0, 0.5), and ends at (-0.5, 0).
 func HalfCircle() *Path {
 	r := 0.5
-	k := circleKappa
-
 	p := NewPath()
 
-	// 5 points: 0°, 45°, 90°, 135°, 180°
 	angles := []float64{0, 45, 90, 135, 180}
 
-	var prev *Knot
+	var knots []*Knot
 	for i, deg := range angles {
-		rad := deg * math.Pi / 180
-		x := r * math.Cos(rad)
-		y := r * math.Sin(rad)
-
-		knot := NewKnot()
-		knot.XCoord = Number(x)
-		knot.YCoord = Number(y)
-
-		tanX := -math.Sin(rad)
-		tanY := math.Cos(rad)
-
-		knot.LeftX = Number(x - k*tanX)
-		knot.LeftY = Number(y - k*tanY)
-		knot.RightX = Number(x + k*tanX)
-		knot.RightY = Number(y + k*tanY)
+		knot := makeCircleKnot(deg, r)
 
 		if i == 0 {
 			knot.LType = KnotEndpoint
-			knot.RType = KnotExplicit
+			// RType stays KnotGiven
 		} else if i == len(angles)-1 {
-			knot.LType = KnotExplicit
+			// LType stays KnotGiven
 			knot.RType = KnotEndpoint
-		} else {
-			knot.LType = KnotExplicit
-			knot.RType = KnotExplicit
 		}
 
-		p.Append(knot)
-		if prev != nil {
-			prev.Next = knot
-			knot.Prev = prev
-		}
-		prev = knot
+		knots = append(knots, knot)
 	}
+
+	// Link knots
+	for i, knot := range knots {
+		p.Append(knot)
+		if i > 0 {
+			knots[i-1].Next = knot
+			knot.Prev = knots[i-1]
+		}
+	}
+
+	e := NewEngine()
+	e.AddPath(p)
+	e.Solve()
 
 	return p
 }
 
 // QuarterCircle returns the first quadrant arc of a unit circle.
-// Equivalent to MetaPost's `quartercircle`.
+// Equivalent to MetaPost's `quartercircle` (= subpath (0,2) of fullcircle).
 // The path starts at (0.5, 0) and ends at (0, 0.5).
 func QuarterCircle() *Path {
 	r := 0.5
-	k := circleKappa
-
 	p := NewPath()
 
-	// 3 points: 0°, 45°, 90°
 	angles := []float64{0, 45, 90}
 
-	var prev *Knot
+	var knots []*Knot
 	for i, deg := range angles {
-		rad := deg * math.Pi / 180
-		x := r * math.Cos(rad)
-		y := r * math.Sin(rad)
-
-		knot := NewKnot()
-		knot.XCoord = Number(x)
-		knot.YCoord = Number(y)
-
-		tanX := -math.Sin(rad)
-		tanY := math.Cos(rad)
-
-		knot.LeftX = Number(x - k*tanX)
-		knot.LeftY = Number(y - k*tanY)
-		knot.RightX = Number(x + k*tanX)
-		knot.RightY = Number(y + k*tanY)
+		knot := makeCircleKnot(deg, r)
 
 		if i == 0 {
 			knot.LType = KnotEndpoint
-			knot.RType = KnotExplicit
 		} else if i == len(angles)-1 {
-			knot.LType = KnotExplicit
 			knot.RType = KnotEndpoint
-		} else {
-			knot.LType = KnotExplicit
-			knot.RType = KnotExplicit
 		}
 
-		p.Append(knot)
-		if prev != nil {
-			prev.Next = knot
-			knot.Prev = prev
-		}
-		prev = knot
+		knots = append(knots, knot)
 	}
+
+	for i, knot := range knots {
+		p.Append(knot)
+		if i > 0 {
+			knots[i-1].Next = knot
+			knot.Prev = knots[i-1]
+		}
+	}
+
+	e := NewEngine()
+	e.AddPath(p)
+	e.Solve()
 
 	return p
 }
