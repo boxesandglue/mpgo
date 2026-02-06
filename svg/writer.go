@@ -881,13 +881,11 @@ func (s *Builder) WriteTo(w io.Writer) error {
 	if vb == "" {
 		vb = fmt.Sprintf("0 0 %g %g", s.width, s.height)
 	}
-	if s.autoSize && (s.width == 0 || s.height == 0) {
-		var vx, vy, vw, vh float64
-		if _, err := fmt.Sscanf(vb, "%f %f %f %f", &vx, &vy, &vw, &vh); err == nil {
-			s.width, s.height = vw, vh
+	if s.autoSize {
+		if _, err := fmt.Fprintf(w, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="%s">`, vb); err != nil {
+			return err
 		}
-	}
-	if _, err := fmt.Fprintf(w, `<svg xmlns="http://www.w3.org/2000/svg" width="%g" height="%g" viewBox="%s">`, s.width, s.height, vb); err != nil {
+	} else if _, err := fmt.Fprintf(w, `<svg xmlns="http://www.w3.org/2000/svg" width="%g" height="%g" viewBox="%s">`, s.width, s.height, vb); err != nil {
 		return err
 	}
 
