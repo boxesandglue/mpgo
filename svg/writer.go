@@ -835,6 +835,18 @@ func (s *Builder) fitViewBoxToContent() {
 		}
 	}
 
+	// Include clipped groups (use clip path bounds, like MetaPost)
+	for _, cg := range s.clippedGroups {
+		if cg.clipIndex >= 0 && cg.clipIndex < len(s.clipPaths) {
+			clip := s.clipPaths[cg.clipIndex]
+			if clip != nil && clip.Head != nil {
+				lminX, lminY, lmaxX, lmaxY := PathBBox(clip)
+				expand(lminX, lminY)
+				expand(lmaxX, lmaxY)
+			}
+		}
+	}
+
 	// Include labels
 	for _, label := range s.labels {
 		if label == nil {
@@ -874,7 +886,7 @@ func (s *Builder) fitViewBoxToContent() {
 
 func (s *Builder) WriteTo(w io.Writer) error {
 	// Auto-fit viewBox if not explicitly set and we have content
-	if !s.viewBoxSet && (len(s.mpOrigPaths) > 0 || len(s.labels) > 0) {
+	if !s.viewBoxSet && (len(s.mpOrigPaths) > 0 || len(s.labels) > 0 || len(s.clippedGroups) > 0) {
 		s.fitViewBoxToContent()
 	}
 	vb := s.viewBox
