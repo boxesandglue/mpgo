@@ -313,6 +313,13 @@ func (s *Builder) Padding(p float64) *Builder {
 	return s
 }
 
+// SetViewBox sets an explicit viewBox. The auto-fit is disabled.
+func (s *Builder) SetViewBox(minX, minY, width, height float64) *Builder {
+	s.viewBox = fmt.Sprintf("%g %g %g %g", minX, minY, width, height)
+	s.viewBoxSet = true
+	return s
+}
+
 // AutoViewBox sets a viewBox with padding.
 func (s *Builder) AutoViewBox(pad float64) *Builder {
 	if s.padding != 0 {

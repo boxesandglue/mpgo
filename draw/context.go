@@ -353,7 +353,7 @@ func (c *Context) Scaled(result, v *Var, t float64) {
 func (c *Context) LinearXY(v *Var, cx, cy, constant float64) {
 	eq := equation{
 		coeffs: map[int]float64{
-			v.index * 2:     cx,
+			v.index * 2:   cx,
 			v.index*2 + 1: cy,
 		},
 		constant: constant,
