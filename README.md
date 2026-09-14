@@ -1,4 +1,4 @@
-[![Reference](https://img.shields.io/badge/Documentation-pkg.go.dev/github.com/boxesandglue/mpgo-blue)](https://pkg.go.dev/github.com/boxesandglue/mpgo)
+[![Reference](https://img.shields.io/badge/Documentation-pkg.go.dev/github.com/boxesandglue/mpgo-blue)](https://pkg.go.dev/github.com/boxesandglue/mpgo)&nbsp;[![Explore in Constellation](https://img.shields.io/badge/Explore%20in-Constellation-blue)](https://constellation.speedata.de)
 
 # mpgo
 
@@ -224,6 +224,12 @@ This library is a port of [MetaPost](https://www.tug.org/metapost.html), origina
 - Original author of MetaPost: John Hobby
 - CWEB version: Taco Hoekwater
 - Current maintainer: Luigi Scarso
+
+## Ecosystem
+
+mpgo is part of a broader ecosystem of PDF, typesetting and publishing technologies.
+
+**[Explore the constellation →](https://constellation.speedata.de)**
 
 ## License
 
