@@ -1,8 +1,14 @@
-[![Reference](https://img.shields.io/badge/Documentation-pkg.go.dev/github.com/boxesandglue/mpgo-blue)](https://pkg.go.dev/github.com/boxesandglue/mpgo)&nbsp;[![Explore in Constellation](https://img.shields.io/badge/Explore%20in-Constellation-blue)](https://constellation.speedata.de)
+[![Reference](https://img.shields.io/badge/Documentation-pkg.go.dev/github.com/boxesandglue/mpgo-blue)](https://pkg.go.dev/github.com/boxesandglue/mpgo)&nbsp;[![Explore in Constellation](https://img.shields.io/badge/Explore%20in-Constellation-blue)](https://constellation.speedata.de/#mpgo)
 
 # mpgo
 
 A Go port of MetaPost's curve-solving engine. Implements the Hobby-Knuth algorithm for computing smooth Bézier curves from high-level path specifications.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/boxesandglue/hobby/main/doc/transforms.svg" width="400" alt="Circles and a square, scaled, slanted and shifted with mpgo">
+</p>
+
+The [hobby](https://github.com/boxesandglue/hobby) command line tool makes mpgo scriptable in Lua; the picture above comes from its examples.
 
 ## Features
 
@@ -229,7 +235,7 @@ This library is a port of [MetaPost](https://www.tug.org/metapost.html), origina
 
 mpgo is part of a broader ecosystem of PDF, typesetting and publishing technologies.
 
-**[Explore the constellation →](https://constellation.speedata.de)**
+**[Explore the constellation →](https://constellation.speedata.de/#mpgo)**
 
 ## License
 
